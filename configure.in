@@ -529,19 +529,19 @@ SRCS_TRANSPORT="src/ssh.c"
 HDRS_PRIV_TRANSPORT="src/ssh.h"
 if test "$tls" = "yes"; then
 	### OpenSSL ###
-	AC_CHECK_LIB([ssl], [SSL_library_init], [], AC_MSG_ERROR([Missing OpenSSL library.]))
+	AC_CHECK_LIB([ssl], [OPENSSL_init_ssl], [], AC_MSG_ERROR([Missing OpenSSL library.]))
 	AC_CHECK_HEADERS([openssl/bio.h openssl/ssl.h openssl/err.h openssl/pem.h], [], AC_MSG_ERROR([Missing OpenSSL headers.]))
 	SRCS_TRANSPORT="$SRCS_TRANSPORT src/tls.c"
 	HDRS_PRIV_TRANSPORT="$HDRS_PRIV_TRANSPORT src/tls.h"
 	HDRS_PRIV_TLS="src/libnetconf_tls.h"
 	HDRS_PUBL_TLS="headers/libnetconf_tls.h"
-	BUILDREQS="$BUILDREQS openssl-devel >= 1.0.0"
-	DEVELREQS="$DEVELREQS openssl-devel >= 1.0.0"
+	BUILDREQS="$BUILDREQS openssl-devel >= 1.1.0"
+	DEVELREQS="$DEVELREQS openssl-devel >= 1.1.0"
 elif test "$dnssec" = "yes"; then
-	AC_CHECK_LIB([ssl], [SSL_library_init], [], AC_MSG_ERROR([Missing OpenSSL library.]))
+	AC_CHECK_LIB([ssl], [OPENSSL_init_ssl], [], AC_MSG_ERROR([Missing OpenSSL library.]))
 	AC_CHECK_HEADERS([openssl/bio.h openssl/ssl.h openssl/err.h openssl/pem.h], [], AC_MSG_ERROR([Missing OpenSSL headers.]))
-	BUILDREQS="$BUILDREQS openssl-devel >= 1.0.0"
-	DEVELREQS="$DEVELREQS openssl-devel >= 1.0.0"
+	BUILDREQS="$BUILDREQS openssl-devel >= 1.1.0"
+	DEVELREQS="$DEVELREQS openssl-devel >= 1.1.0"
 fi
 
 ### pthread ###

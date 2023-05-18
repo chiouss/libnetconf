@@ -86,8 +86,8 @@ API void nc_tls_destroy(void)
 /* based on the code of stunnel utility */
 int verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx) {
 	X509_STORE* store;
-	X509_STORE_CTX store_ctx;
-	X509_OBJECT obj;
+	X509_STORE_CTX *store_ctx = X509_STORE_CTX_new();
+	X509_OBJECT *obj;
 	X509_NAME* subject;
 	X509_NAME* issuer;
 	X509* cert;
@@ -95,7 +95,7 @@ int verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx) {
 	X509_REVOKED* revoked;
 	EVP_PKEY* pubkey;
 	int i, n, rc;
-	ASN1_TIME* next_update = NULL;
+	const ASN1_TIME* next_update = NULL;
 
 	if (!preverify_ok) {
 		return 0;
@@ -112,62 +112,56 @@ int verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx) {
 
 	/* try to retrieve a CRL corresponding to the _subject_ of
 	 * the current certificate in order to verify it's integrity */
-	memset((char *)&obj, 0, sizeof obj);
-	X509_STORE_CTX_init(&store_ctx, store, NULL, NULL);
-	rc = X509_STORE_get_by_subject(&store_ctx, X509_LU_CRL, subject, &obj);
-	X509_STORE_CTX_cleanup(&store_ctx);
-	crl = obj.data.crl;
-	if (rc > 0 && crl) {
-		next_update = X509_CRL_get_nextUpdate(crl);
+	obj = X509_OBJECT_new();
+	X509_STORE_CTX_init(store_ctx, store, NULL, NULL);
+	rc = X509_STORE_CTX_get_by_subject(store_ctx, X509_LU_CRL, subject, obj);
+	X509_STORE_CTX_cleanup(store_ctx);
+	if (rc) {
+		crl = X509_OBJECT_get0_X509_CRL(obj);
+		next_update = X509_CRL_get0_nextUpdate(crl);
 
 		/* verify the signature on this CRL */
-		pubkey = X509_get_pubkey(cert);
+		pubkey = X509_get0_pubkey(cert);
 		if (X509_CRL_verify(crl, pubkey) <= 0) {
 			X509_STORE_CTX_set_error(x509_ctx, X509_V_ERR_CRL_SIGNATURE_FAILURE);
-			X509_OBJECT_free_contents(&obj);
-			if (pubkey) {
-				EVP_PKEY_free(pubkey);
-			}
+			X509_OBJECT_free(obj);
 			return 0; /* fail */
-		}
-		if (pubkey) {
-			EVP_PKEY_free(pubkey);
 		}
 
 		/* check date of CRL to make sure it's not expired */
 		if (!next_update) {
 			X509_STORE_CTX_set_error(x509_ctx, X509_V_ERR_ERROR_IN_CRL_NEXT_UPDATE_FIELD);
-			X509_OBJECT_free_contents(&obj);
+			X509_OBJECT_free(obj);
 			return 0; /* fail */
 		}
 		if (X509_cmp_current_time(next_update) < 0) {
 			X509_STORE_CTX_set_error(x509_ctx, X509_V_ERR_CRL_HAS_EXPIRED);
-			X509_OBJECT_free_contents(&obj);
+			X509_OBJECT_free(obj);
 			return 0; /* fail */
 		}
-		X509_OBJECT_free_contents(&obj);
+		X509_OBJECT_free(obj);
 	}
 
 	/* try to retrieve a CRL corresponding to the _issuer_ of
 	 * the current certificate in order to check for revocation */
-	memset((char *)&obj, 0, sizeof obj);
-	X509_STORE_CTX_init(&store_ctx, store, NULL, NULL);
-	rc = X509_STORE_get_by_subject(&store_ctx, X509_LU_CRL, issuer, &obj);
-	X509_STORE_CTX_cleanup(&store_ctx);
-	crl = obj.data.crl;
-	if (rc > 0 && crl) {
+	obj = X509_OBJECT_new();
+	X509_STORE_CTX_init(store_ctx, store, NULL, NULL);
+	rc = X509_STORE_CTX_get_by_subject(store_ctx, X509_LU_CRL, issuer, obj);
+	X509_STORE_CTX_free(store_ctx);
+	if (rc) {
+		crl = X509_OBJECT_get0_X509_CRL(obj);
 		/* check if the current certificate is revoked by this CRL */
 		n = sk_X509_REVOKED_num(X509_CRL_get_REVOKED(crl));
 		for (i = 0; i < n; i++) {
 			revoked = sk_X509_REVOKED_value(X509_CRL_get_REVOKED(crl), i);
-			if (ASN1_INTEGER_cmp(revoked->serialNumber, X509_get_serialNumber(cert)) == 0) {
+			if (ASN1_INTEGER_cmp(X509_REVOKED_get0_serialNumber(revoked), X509_get_serialNumber(cert)) == 0) {
 				ERROR("Certificate revoked");
 				X509_STORE_CTX_set_error(x509_ctx, X509_V_ERR_CERT_REVOKED);
-				X509_OBJECT_free_contents(&obj);
+				X509_OBJECT_free(obj);
 				return 0; /* fail */
 			}
 		}
-		X509_OBJECT_free_contents(&obj);
+		X509_OBJECT_free(obj);
 	}
 	return 1; /* success */
 }
@@ -198,7 +192,7 @@ API int nc_tls_init(const char* peer_cert, const char* peer_key, const char *CAf
 	}
 
 	/* prepare global SSL context, allow only mandatory TLS 1.2  */
-	if ((tls_ctx = SSL_CTX_new(TLSv1_2_client_method())) == NULL) {
+	if ((tls_ctx = SSL_CTX_new(TLS_client_method())) == NULL) {
 		ERROR("Unable to create OpenSSL context (%s)", ERR_reason_error_string(ERR_get_error()));
 		return (EXIT_FAILURE);
 	}
@@ -208,7 +202,6 @@ API int nc_tls_init(const char* peer_cert, const char* peer_key, const char *CAf
 	if (CRLfile != NULL || CRLpath != NULL) {
 		/* set the revocation store with the correct paths for the callback */
 		tls_store = X509_STORE_new();
-		tls_store->cache = 0;
 
 		if (CRLfile != NULL) {
 			if ((lookup = X509_STORE_add_lookup(tls_store, X509_LOOKUP_file())) == NULL) {
